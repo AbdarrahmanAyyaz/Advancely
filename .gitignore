@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Environment files (secrets)
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+!.env.example
+
+# Build outputs
+dist/
+.expo/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Markdown docs
+*.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Turbo
+.turbo/
+
+# Expo
+apps/mobile/ios/
+apps/mobile/android/
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

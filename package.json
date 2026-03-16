@@ -1,0 +1,24 @@
+{
+  "name": "advancely",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "server"
+  ],
+  "scripts": {
+    "dev:mobile": "cd apps/mobile && npx expo start",
+    "dev:server": "cd server && npm run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "cd packages/db && npm run generate",
+    "db:migrate": "cd packages/db && npm run migrate",
+    "db:push": "cd packages/db && npm run push"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.7.0"
+  }
+}
