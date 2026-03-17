@@ -58,12 +58,16 @@ export async function api<T>(
     url += `?${searchParams.toString()}`;
   }
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
+  const headers: Record<string, string> = {};
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Only set Content-Type and body when there's actual data to send.
+  // Fastify rejects Content-Type: application/json with an empty body.
+  if (body) {
+    headers['Content-Type'] = 'application/json';
   }
 
   const response = await fetch(url, {

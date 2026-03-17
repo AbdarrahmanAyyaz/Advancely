@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Session, User } from '@supabase/supabase-js';
+import { Platform } from 'react-native';
 import { supabase } from '@/services/supabase';
 import { api, ApiError } from '@/services/api';
 
@@ -12,8 +13,45 @@ interface AuthState {
   initialize: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string) => Promise<void>;
+  signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
   setOnboarded: (value: boolean) => void;
+}
+
+/**
+ * Fetches the user's profile from the users table.
+ * If the profile doesn't exist (handle_new_user trigger failed),
+ * creates it as a fallback so the user isn't stuck.
+ */
+async function ensureProfile(userId: string, email?: string): Promise<boolean> {
+  // Try to fetch existing profile
+  const { data: profile, error } = await supabase
+    .from('users')
+    .select('onboarding_completed_at')
+    .eq('id', userId)
+    .single();
+
+  if (profile) {
+    return !!profile.onboarding_completed_at;
+  }
+
+  // Profile doesn't exist — trigger may have failed. Create it manually.
+  if (error?.code === 'PGRST116' || !profile) {
+    try {
+      await supabase.from('users').insert({
+        id: userId,
+        email: email ?? '',
+        tier: 'free',
+        total_points: 0,
+        current_level: 1,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+    } catch {
+      // Insert may fail if trigger fired concurrently — that's fine
+    }
+  }
+
+  return false;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -30,17 +68,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       } = await supabase.auth.getSession();
 
       if (session?.user) {
-        // Check if user has completed onboarding
         let isOnboarded = false;
         try {
-          const { data: profile } = await supabase
-            .from('users')
-            .select('onboarding_completed_at')
-            .eq('id', session.user.id)
-            .single();
-          isOnboarded = !!profile?.onboarding_completed_at;
+          isOnboarded = await ensureProfile(session.user.id, session.user.email);
         } catch {
-          // Profile row may not exist yet (trigger delay) — treat as not onboarded
+          // Treat as not onboarded
         }
 
         set({
@@ -58,14 +90,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (event === 'SIGNED_IN' && newSession?.user) {
           let isOnboarded = false;
           try {
-            const { data: profile } = await supabase
-              .from('users')
-              .select('onboarding_completed_at')
-              .eq('id', newSession.user.id)
-              .single();
-            isOnboarded = !!profile?.onboarding_completed_at;
+            isOnboarded = await ensureProfile(
+              newSession.user.id,
+              newSession.user.email,
+            );
           } catch {
-            // Profile row may not exist yet — treat as not onboarded
+            // Treat as not onboarded
           }
 
           set({
@@ -122,6 +152,48 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (signInError) {
       throw signInError;
+    }
+  },
+
+  signInWithApple: async (): Promise<void> => {
+    if (Platform.OS !== 'ios') {
+      throw new Error('Apple Sign-In is only available on iOS');
+    }
+
+    const AppleAuthentication = await import('expo-apple-authentication');
+
+    const credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+    });
+
+    if (!credential.identityToken) {
+      throw new Error('Apple Sign-In failed: no identity token returned');
+    }
+
+    // Exchange Apple identity token with Supabase
+    const { error } = await supabase.auth.signInWithIdToken({
+      provider: 'apple',
+      token: credential.identityToken,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    // Apple only provides the full name on the FIRST sign-in — save it immediately
+    if (credential.fullName?.givenName || credential.fullName?.familyName) {
+      const nameParts = [
+        credential.fullName.givenName,
+        credential.fullName.familyName,
+      ].filter(Boolean);
+      const fullName = nameParts.join(' ');
+
+      if (fullName) {
+        await supabase.auth.updateUser({ data: { full_name: fullName } });
+      }
     }
   },
 

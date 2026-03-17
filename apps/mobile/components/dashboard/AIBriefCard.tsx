@@ -37,13 +37,16 @@ export function AIBriefCard({
           </Text>
           <ActivityIndicator size="small" color="#7C5CFC" />
         </View>
-      ) : isError ? (
-        <View flexDirection="row" alignItems="center" gap="$sm">
-          <Sparkles size={16} color="$accentPrimary" />
-          <Text fontSize={14} color="$textSecondary">
-            Couldn't load your morning brief. Pull to refresh.
-          </Text>
-        </View>
+      ) : isError || !brief ? (
+        <Text
+          fontSize={15}
+          fontWeight="400"
+          color="$textPrimary"
+          lineHeight={22}
+        >
+          Welcome to Advancely! Check your tasks below and make today count.
+          Every small step moves you closer to your vision.
+        </Text>
       ) : (
         <Text
           fontSize={15}

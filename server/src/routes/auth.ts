@@ -1,9 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { users } from '@advancely/db';
+import { users, aiConversations } from '@advancely/db';
 import type { Database } from '@advancely/db';
 import { updateProfileSchema } from '@advancely/shared';
 import { authMiddleware, supabaseAdmin } from '../middleware/auth';
+import { routeAiTask } from '../services/ai/router';
+import { buildUserContext } from '../services/ai/context-builder';
+import { buildMorningBriefPrompt } from '../prompts/morning-brief-v1';
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   const db = (app as unknown as { db: Database }).db;
@@ -84,7 +87,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return { data: updated[0] };
   });
 
-  // POST /auth/complete-onboarding — Mark onboarding complete
+  // POST /auth/complete-onboarding — Mark onboarding complete + generate first brief
   app.post(
     '/complete-onboarding',
     { preHandler: [authMiddleware] },
@@ -94,6 +97,49 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         .set({ onboardingCompletedAt: new Date() })
         .where(eq(users.id, request.user.id))
         .returning();
+
+      // Generate first morning brief in the background (don't block the response)
+      // This ensures the dashboard has content immediately when the user arrives
+      (async () => {
+        try {
+          const context = await buildUserContext(db, request.user.id);
+          const prompt = buildMorningBriefPrompt(context);
+
+          const aiResult = await routeAiTask({
+            taskType: 'morning_brief',
+            systemPrompt: prompt,
+            messages: [
+              {
+                role: 'user',
+                content: 'Generate my morning brief for today.',
+              },
+            ],
+            userId: request.user.id,
+          });
+
+          await db.insert(aiConversations).values({
+            userId: request.user.id,
+            conversationType: 'morning_brief',
+            messages: [
+              {
+                role: 'user',
+                content: 'Generate my morning brief for today.',
+                ts: new Date().toISOString(),
+              },
+              {
+                role: 'assistant',
+                content: aiResult.content,
+                ts: new Date().toISOString(),
+              },
+            ],
+            modelUsed: aiResult.modelUsed,
+            inputTokens: aiResult.inputTokens,
+            outputTokens: aiResult.outputTokens,
+          });
+        } catch (err) {
+          console.error('Failed to generate first morning brief:', err);
+        }
+      })();
 
       return { data: updated[0] };
     },

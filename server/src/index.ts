@@ -38,6 +38,21 @@ async function main(): Promise<void> {
     credentials: true,
   });
 
+  // Allow empty bodies with Content-Type: application/json.
+  // Mobile clients often send this header even on POST/PATCH with no body.
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      try {
+        const str = (body as string).trim();
+        done(null, str.length > 0 ? JSON.parse(str) : undefined);
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    },
+  );
+
   // Database connection
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {

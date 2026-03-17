@@ -26,6 +26,12 @@ interface OnboardingPlan {
   suggested_habits: OnboardingHabit[];
 }
 
+interface FirstDayTask {
+  id: string;
+  title: string;
+  category: string;
+}
+
 interface OnboardingState {
   messages: ChatMessage[];
   conversationId: string | null;
@@ -33,6 +39,7 @@ interface OnboardingState {
   plan: OnboardingPlan | null;
   selectedHabitIndices: number[];
   isFinalizing: boolean;
+  firstDayTasks: FirstDayTask[];
 
   sendMessage: (message: string) => Promise<void>;
   setSelectedHabitIndices: (indices: number[]) => void;
@@ -49,6 +56,7 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
   plan: null,
   selectedHabitIndices: [],
   isFinalizing: false,
+  firstDayTasks: [],
 
   sendMessage: async (message: string): Promise<void> => {
     const { conversationId, messages } = get();
@@ -59,48 +67,64 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
       isAiTyping: true,
     });
 
-    try {
-      const response = await api<{
-        conversationId: string;
-        message: string;
-        modelUsed: string;
-        plan?: OnboardingPlan;
-      }>('/ai/onboarding', {
-        method: 'POST',
-        body: {
-          message,
-          conversationId: conversationId ?? undefined,
-        },
-      });
+    const MAX_RETRIES = 2;
+    let lastError: unknown = null;
 
-      const currentMessages = get().messages;
-      set({
-        messages: [
-          ...currentMessages,
-          { role: 'assistant', content: response.data.message },
-        ],
-        conversationId: response.data.conversationId,
-        isAiTyping: false,
-        plan: response.data.plan ?? get().plan,
-        // Auto-select all habits when plan arrives
-        selectedHabitIndices: response.data.plan
-          ? response.data.plan.suggested_habits.map((_, i) => i)
-          : get().selectedHabitIndices,
-      });
-    } catch (error) {
-      set({
-        isAiTyping: false,
-        messages: [
-          ...get().messages,
-          {
-            role: 'assistant',
-            content:
-              'Sorry, I had trouble responding. Could you try again?',
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        // On retry, wait 3 seconds
+        if (attempt > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
+
+        const response = await api<{
+          conversationId: string;
+          message: string;
+          modelUsed: string;
+          plan?: OnboardingPlan;
+        }>('/ai/onboarding', {
+          method: 'POST',
+          body: {
+            message,
+            conversationId: get().conversationId ?? undefined,
           },
-        ],
-      });
-      console.error('Onboarding AI error:', error);
+        });
+
+        const currentMessages = get().messages;
+        set({
+          messages: [
+            ...currentMessages,
+            { role: 'assistant', content: response.data.message },
+          ],
+          conversationId: response.data.conversationId,
+          isAiTyping: false,
+          plan: response.data.plan ?? get().plan,
+          // Auto-select habits when plan arrives (max 3 for free tier)
+          selectedHabitIndices: response.data.plan
+            ? response.data.plan.suggested_habits
+                .map((_, i) => i)
+                .slice(0, 3)
+            : get().selectedHabitIndices,
+        });
+        return; // Success — exit the retry loop
+      } catch (error) {
+        lastError = error;
+        console.error(`Onboarding AI error (attempt ${attempt + 1}):`, error);
+      }
     }
+
+    // All retries exhausted
+    set({
+      isAiTyping: false,
+      messages: [
+        ...get().messages,
+        {
+          role: 'assistant',
+          content:
+            'Something went wrong. Tap to try again.',
+        },
+      ],
+    });
   },
 
   setSelectedHabitIndices: (indices: number[]): void => {
@@ -130,6 +154,7 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
         goalIds: string[];
         habitIds: string[];
         taskIds: string[];
+        tasks?: FirstDayTask[];
       }>('/ai/onboarding/finalize', {
         method: 'POST',
         body: {
@@ -138,7 +163,10 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
         },
       });
 
-      set({ isFinalizing: false });
+      set({
+        isFinalizing: false,
+        firstDayTasks: response.data.tasks ?? [],
+      });
       return response.data;
     } catch (error) {
       set({ isFinalizing: false });
@@ -158,6 +186,7 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
       plan: null,
       selectedHabitIndices: [],
       isFinalizing: false,
+      firstDayTasks: [],
     });
   },
 }));

@@ -1,11 +1,13 @@
 import React from 'react';
 import { View, Text, YStack, XStack, ScrollView } from 'tamagui';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Pressable, ActivityIndicator } from 'react-native';
+import { Alert, Pressable, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Check } from '@tamagui/lucide-icons';
+import { Check, Lock } from '@tamagui/lucide-icons';
 import { ProgressDots } from '@/components/ProgressDots';
 import { useOnboardingStore } from '@/stores/onboarding-store';
+
+const FREE_TIER_MAX_HABITS = 3;
 
 const CATEGORY_COLORS: Record<string, { text: string; bg: string }> = {
   skills: { text: '#5B9CF6', bg: 'rgba(91, 156, 246, 0.15)' },
@@ -72,18 +74,57 @@ export default function ReviewHabitsScreen(): React.JSX.Element {
               off any you'd rather skip for now.
             </Text>
 
+            {/* Free tier limit warning */}
+            {selectedHabitIndices.length >= FREE_TIER_MAX_HABITS &&
+              plan.suggested_habits.length > FREE_TIER_MAX_HABITS && (
+                <View
+                  backgroundColor="rgba(245, 166, 35, 0.1)"
+                  borderRadius={12}
+                  padding="$md"
+                  borderWidth={1}
+                  borderColor="rgba(245, 166, 35, 0.2)"
+                >
+                  <XStack gap="$sm" alignItems="center">
+                    <Lock size={14} color="#F5A623" />
+                    <Text
+                      fontSize={13}
+                      fontWeight="500"
+                      color="#F5A623"
+                      flex={1}
+                    >
+                      Free plan supports {FREE_TIER_MAX_HABITS} habits. Upgrade
+                      to Pro for more.
+                    </Text>
+                  </XStack>
+                </View>
+              )}
+
             {/* Habit Cards */}
             {plan.suggested_habits.map((habit, index) => {
               const isSelected = selectedHabitIndices.includes(index);
+              const isAtLimit =
+                !isSelected &&
+                selectedHabitIndices.length >= FREE_TIER_MAX_HABITS;
               const colors = CATEGORY_COLORS[habit.category] ?? {
                 text: '#7C5CFC',
                 bg: 'rgba(124, 92, 252, 0.15)',
               };
 
+              const handleToggle = (): void => {
+                if (isAtLimit) {
+                  Alert.alert(
+                    'Habit Limit',
+                    `Free plan supports ${FREE_TIER_MAX_HABITS} habits. Deselect one to add this, or upgrade to Pro for more.`,
+                  );
+                  return;
+                }
+                toggleHabit(index);
+              };
+
               return (
                 <Pressable
                   key={index}
-                  onPress={() => toggleHabit(index)}
+                  onPress={handleToggle}
                   style={({ pressed }) => ({
                     opacity: pressed ? 0.9 : 1,
                   })}

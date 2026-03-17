@@ -11,7 +11,8 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "ai.advancely.app",
-      "buildNumber": "1"
+      "buildNumber": "1",
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -28,7 +29,8 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true
@@ -37,6 +39,13 @@
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#0B0D17"
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4f526322-d592-43aa-9779-9f9c739ee445"
+      }
+    },
+    "owner": "aayyaz"
   }
 }

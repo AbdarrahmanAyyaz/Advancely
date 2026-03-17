@@ -88,6 +88,20 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
+      // Check if entry already exists for this date (to determine INSERT vs UPDATE)
+      const existing = await db
+        .select({ id: journalEntries.id })
+        .from(journalEntries)
+        .where(
+          and(
+            eq(journalEntries.userId, request.user.id),
+            eq(journalEntries.entryDate, parsed.data.entryDate),
+          ),
+        )
+        .limit(1);
+
+      const isNewEntry = !existing[0];
+
       // Upsert — one entry per user per date
       const created = await db
         .insert(journalEntries)
@@ -112,19 +126,23 @@ export async function journalRoutes(app: FastifyInstance): Promise<void> {
         })
         .returning();
 
-      // Award points for journal entry
-      await awardPoints(
-        db,
-        request.user.id,
-        'journal_entry',
-        POINT_VALUES.journalEntry,
-        created[0]?.id,
-        'journal_entry',
-      );
+      // Only award points on first creation, not on updates
+      let pointsAwarded = 0;
+      if (isNewEntry) {
+        await awardPoints(
+          db,
+          request.user.id,
+          'journal_entry',
+          POINT_VALUES.journalEntry,
+          created[0]?.id,
+          'journal_entry',
+        );
+        pointsAwarded = POINT_VALUES.journalEntry;
+      }
 
-      return reply.status(201).send({
+      return reply.status(isNewEntry ? 201 : 200).send({
         data: created[0],
-        pointsAwarded: POINT_VALUES.journalEntry,
+        pointsAwarded,
       });
     },
   );

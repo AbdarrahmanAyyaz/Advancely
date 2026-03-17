@@ -3,12 +3,13 @@
  *
  * Takes the structured JSON output from the onboarding AI conversation
  * and creates the vision, goals, and habits in the database.
- * Also generates the user's first set of daily tasks.
+ * Also generates the user's first set of daily tasks via AI.
  */
 
 import { eq, and } from 'drizzle-orm';
 import { visions, goals, habits, dailyTasks } from '@advancely/db';
 import type { Database } from '@advancely/db';
+import { routeAiTask } from './ai/router';
 
 interface OnboardingGoal {
   title: string;
@@ -82,6 +83,7 @@ export async function finalizeOnboardingPlan(
   goalIds: string[];
   habitIds: string[];
   taskIds: string[];
+  tasks: Array<{ id: string; title: string; category: string }>;
 }> {
   // 1. Deactivate any existing visions (shouldn't exist for new user, but safety)
   await db
@@ -144,12 +146,72 @@ export async function finalizeOnboardingPlan(
           .returning()
       : [];
 
-  // 5. Generate first-day tasks from goals (one actionable task per goal)
+  // 5. Generate first-day tasks via AI (with fallback)
   const today = new Date().toISOString().split('T')[0] as string;
-  const firstTasks = createdGoals.map((g, i) => ({
+  let aiTasks: Array<{ title: string; category: string }> = [];
+
+  try {
+    const goalsDescription = createdGoals
+      .map((g) => `- ${g.title} (${g.category}): ${plan.goals.find((pg) => pg.title === g.title)?.description ?? ''}`)
+      .join('\n');
+
+    const taskGenResult = await routeAiTask({
+      taskType: 'onboarding',
+      systemPrompt: `You generate actionable first-day tasks for a personal development app user. Return ONLY a JSON array, no other text.
+
+Each task must be:
+- Specific and completable today (not vague like "start working on X")
+- Under 15 minutes to complete
+- Connected to one of the user's goals
+
+Return exactly this JSON format:
+[
+  { "title": "Task description here", "category": "skills|wealth|health|impact" },
+  ...
+]
+
+Generate 3-4 tasks total, at least one per goal.`,
+      messages: [
+        {
+          role: 'user',
+          content: `My goals:\n${goalsDescription}\n\nGenerate my first-day tasks.`,
+        },
+      ],
+      userId,
+    });
+
+    // Parse AI tasks
+    const jsonMatch = taskGenResult.content.match(/\[[\s\S]*\]/);
+    if (jsonMatch?.[0]) {
+      const parsed = JSON.parse(jsonMatch[0]) as Array<{
+        title: string;
+        category: string;
+      }>;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        aiTasks = parsed.slice(0, 5);
+      }
+    }
+  } catch {
+    // AI task generation failed — use fallback below
+  }
+
+  // Fallback if AI didn't generate tasks
+  if (aiTasks.length === 0) {
+    aiTasks = createdGoals.map((g) => ({
+      title: `Take 10 minutes to outline your first step for: ${g.title}`,
+      category: g.category,
+    }));
+  }
+
+  // Map categories to goal IDs for linking
+  const categoryToGoalId = new Map(
+    createdGoals.map((g) => [g.category, g.id]),
+  );
+
+  const firstTasks = aiTasks.map((t, i) => ({
     userId,
-    goalId: g.id,
-    title: `Start working on: ${g.title}`,
+    goalId: categoryToGoalId.get(t.category) ?? createdGoals[0]?.id ?? null,
+    title: t.title,
     taskDate: today,
     source: 'ai' as const,
     sortOrder: i,
@@ -166,5 +228,11 @@ export async function finalizeOnboardingPlan(
     goalIds: createdGoals.map((g) => g.id),
     habitIds: createdHabits.map((h) => h.id),
     taskIds: createdTasks.map((t) => t.id),
+    // Include task details for the first-mission screen
+    tasks: createdTasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      category: createdGoals.find((g) => g.id === t.goalId)?.category ?? 'skills',
+    })),
   };
 }

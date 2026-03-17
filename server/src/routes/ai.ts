@@ -92,10 +92,20 @@ export async function aiRoutes(app: FastifyInstance): Promise<void> {
         },
       ];
 
+      // If the user has sent 8+ messages, nudge the AI to wrap up
+      const userMessageCount = updatedMessages.filter(
+        (m) => m.role === 'user',
+      ).length;
+      const systemPrompt =
+        userMessageCount >= 8
+          ? ONBOARDING_SYSTEM_PROMPT +
+            '\n\nIMPORTANT: You have gathered enough information. You MUST generate the structured JSON output now. Do not ask any more questions.'
+          : ONBOARDING_SYSTEM_PROMPT;
+
       // Call AI
       const aiResult = await routeAiTask({
         taskType: 'onboarding',
-        systemPrompt: ONBOARDING_SYSTEM_PROMPT,
+        systemPrompt,
         messages: updatedMessages.map((m) => ({
           role: m.role,
           content: m.content,

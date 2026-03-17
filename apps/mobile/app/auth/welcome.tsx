@@ -1,12 +1,37 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, YStack, XStack } from 'tamagui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Pressable } from 'react-native';
+import { Alert, Platform, Pressable, ActivityIndicator } from 'react-native';
 import { Sparkles } from '@tamagui/lucide-icons';
+import { useAuthStore } from '@/stores/auth-store';
 
 export default function WelcomeScreen(): React.JSX.Element {
   const router = useRouter();
+  const signInWithApple = useAuthStore((s) => s.signInWithApple);
+  const [appleLoading, setAppleLoading] = useState(false);
+
+  const handleAppleSignIn = async (): Promise<void> => {
+    if (Platform.OS !== 'ios') {
+      Alert.alert('Not Available', 'Apple Sign-In is only available on iOS devices.');
+      return;
+    }
+
+    setAppleLoading(true);
+    try {
+      await signInWithApple();
+      // Auth state listener in the store will handle navigation
+    } catch (error: unknown) {
+      const err = error as { code?: string; message?: string };
+      // User cancelled — don't show an error
+      if (err.code === 'ERR_REQUEST_CANCELED') {
+        return;
+      }
+      Alert.alert('Sign-In Failed', err.message ?? 'Something went wrong. Please try again.');
+    } finally {
+      setAppleLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#0B0D17' }}>
@@ -55,11 +80,10 @@ export default function WelcomeScreen(): React.JSX.Element {
         <YStack gap="$md" paddingBottom="$lg">
           {/* Continue with Apple - Primary white button */}
           <Pressable
-            onPress={() => {
-              // Apple Sign In — will be configured when Apple Developer account is ready
-            }}
+            onPress={handleAppleSignIn}
+            disabled={appleLoading}
             style={({ pressed }) => ({
-              backgroundColor: pressed
+              backgroundColor: pressed || appleLoading
                 ? 'rgba(255, 255, 255, 0.85)'
                 : '#FFFFFF',
               height: 52,
@@ -68,11 +92,16 @@ export default function WelcomeScreen(): React.JSX.Element {
               alignItems: 'center',
               flexDirection: 'row',
               gap: 8,
+              opacity: appleLoading ? 0.7 : 1,
             })}
           >
-            <Text fontSize={16} fontWeight="600" color="#0B0D17">
-               Continue with Apple
-            </Text>
+            {appleLoading ? (
+              <ActivityIndicator color="#0B0D17" />
+            ) : (
+              <Text fontSize={16} fontWeight="600" color="#0B0D17">
+                 Continue with Apple
+              </Text>
+            )}
           </Pressable>
 
           {/* Continue with Google - Outlined button */}
